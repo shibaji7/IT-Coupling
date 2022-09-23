@@ -1,5 +1,6 @@
 import numpy
 
+
 class CalcFov(object):
     """
     Class to calculate fov coords!
@@ -515,8 +516,8 @@ class CalcFov(object):
 
         Shameless Ripoff from DaViTPy
         """
-    #     import sys
-    #     sys.path.append('../utils/')
+    import sys
+          sys.path.append('../utils/')
         import geoPack
         import model_vheight as vhm
 

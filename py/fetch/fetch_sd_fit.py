@@ -20,8 +20,8 @@ import shutil
 
 import numpy as np
 import pandas as pd
-import pydarnio as pydarnio
 from loguru import logger
+
 
 class Beam(object):
     """Class to hold one beam object"""

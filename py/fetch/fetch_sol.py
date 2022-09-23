@@ -13,17 +13,16 @@ __status__ = "Research"
 
 import calendar
 import datetime as dt
+import math
 import os
 
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import netCDF4 as nc
-import numpy as np
 import pandas as pd
-import requests
-from netCDF4 import Dataset
 from loguru import logger
-
+from netCDF4 import Dataset
+from soho_loader import soho_load
 from sunpy import timeseries as ts
 from sunpy.net import Fido
 from sunpy.net import attrs as a
@@ -47,9 +46,8 @@ class FlareTS(object):
         self.dates = dates
         self.dfs = {}
         os.makedirs(self.base, exist_ok=True)
-        if self.ev.year >= 2009: self.__loadGOESX__()
-        else: self.__loadGOES__()
-        self.__loadRHESSI__()
+        #         self.__loadGOESX__()
+        #         self.__loadRHESSI__()
         self.__loadEUVs__()
         return
 
@@ -155,29 +153,59 @@ class FlareTS(object):
 
     def __loadEUVs__(self):
         # SOHO SEM Data, download to sunpy data dircetory
-        from soho_loader import soho_load
-        df, _ = soho_load(dataset="SOHO_CELIAS-SEM_15S",
-                     startdate=self.dates[0],
-                     enddate=self.dates[1],
-                     path=None,
-                     resample=None,
-                     pos_timestamp=None,
-                     max_conn=5)
-        self.dfs["soho"] = df
-        # XPS 5-min data
-        zipFname = "sorce_xps_L4_c05m_r0.1nm_{Y}.ncdf.zip".format(
-            Y=self.dates[0].year
+        df, _ = soho_load(
+            dataset="SOHO_CELIAS-SEM_15S",
+            startdate=self.dates[0],
+            enddate=self.dates[1],
+            path=None,
+            resample=None,
+            pos_timestamp=None,
+            max_conn=5,
         )
-        unzipFname = "sorce_xps_L4_c05m_r0.1nm_{Y}.ncdf".format(
+        self.dfs["soho"] = df
+        logger.info(f"Data from SOHO SEM: \n {self.dfs['soho'].head()}")
+        # XPS 5-min data
+        zipFname = "sorce_xps_L4_c05m_r0.1nm_{Y}.ncdf.zip".format(Y=self.dates[0].year)
+        unzipFname = "data/sorce_xps_L4_c05m_r0.1nm_v12_{Y}0101_{Y}1231.ncdf".format(
             Y=self.dates[0].year
         )
         if not os.path.exists(unzipFname):
             link = "http://lasp.colorado.edu/data/sorce/ssi_data/xps/level4/5min/"
             os.system(f"wget {link}{zipFname} -O {zipFname}")
             import zipfile
-            with zipfile.ZipFile(zipFname, "r") as zip:
-                zip.extractall(f"./{unzipFname}")
+
+            with zipfile.ZipFile(zipFname, "r") as zipf:
+                zipf.extractall(f"./data/")
             os.remove(zipFname)
+        if os.path.exists(unzipFname):
+            ds = Dataset(unzipFname)
+            times, dates = ds.variables["TIME"][:], ds.variables["DATE"][:]
+            sdate = self.dates[0].year * 1000 + self.dates[0].timetuple().tm_yday
+            firstID = dates.tolist().index(sdate)
+            lastID = firstID + 110
+            secOfDay, dayOfY = (
+                times[firstID:lastID],
+                [
+                    dt.datetime(int(str(dx)[0:4]), 1, 1)
+                    + dt.timedelta(days=int(str(dx)[4:]) - 1)
+                    for dx in ds.variables["DATE"][firstID:lastID]
+                ],
+            )
+            datetimes = [
+                dx
+                + dt.timedelta(seconds=math.modf(tx)[1])
+                + dt.timedelta(milliseconds=math.modf(tx)[0])
+                for dx, tx in zip(dayOfY, secOfDay)
+            ]
+            flux_mean, flux_err = (
+                ds.variables["MODELFLUX_MEAN"][firstID:lastID, :],
+                ds.variables["ERR_ABS"][firstID:lastID, :],
+            )
+            self.ssi = {
+                "time": datetimes,
+                "flux_mean": flux_mean,
+                "flux_err": flux_err,
+            }
         return
 
     def plot_TS_dataset(
@@ -234,8 +262,5 @@ class FlareTS(object):
 if __name__ == "__main__":
     FlareTS(
         dt.datetime(2005, 9, 7, 17, 40),
-        [
-            dt.datetime(2005, 9, 7, 17), 
-            dt.datetime(2005, 9, 7, 18)
-        ]
+        [dt.datetime(2005, 9, 7, 17), dt.datetime(2005, 9, 7, 18)],
     )
